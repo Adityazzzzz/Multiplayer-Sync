@@ -1,3 +1,5 @@
+import type { CursorPosition } from '../../shared/protocol';
+
 export function createThrottledSender(ws: WebSocket, delayMs: number) {
   let lastCall = 0;
   let pendingPosition: CursorPosition | null = null;
