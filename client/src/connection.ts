@@ -200,6 +200,9 @@ function nextCursorSequence(): number {
 }
 
 function defaultWebSocketUrl() {
+  if (import.meta.env.VITE_WS_URL) {
+    return import.meta.env.VITE_WS_URL;
+  }
   const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
   return `${protocol}//${window.location.hostname}:8080`;
 }
