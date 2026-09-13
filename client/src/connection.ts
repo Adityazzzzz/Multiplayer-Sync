@@ -74,7 +74,13 @@ export class RoomConnection {
       if (this.ws !== ws || typeof event.data !== 'string') return;
 
       const message = parseServerMessage(event.data);
-      if (message) this.store.handleServerMessage(message);
+      if (message) {
+        if (message.type === 'room_created') {
+          window.location.href = `/?room=${message.roomId}`;
+          return;
+        }
+        this.store.handleServerMessage(message);
+      }
     });
 
     ws.addEventListener('error', () => {
@@ -153,7 +159,7 @@ export class RoomConnection {
     }
   }
 
-  private send(message: ClientMessage): boolean {
+  send(message: ClientMessage): boolean {
     if (this.ws?.readyState !== WebSocket.OPEN) return false;
     this.ws.send(JSON.stringify(message));
     return true;

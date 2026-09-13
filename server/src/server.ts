@@ -1,3 +1,4 @@
+import http from 'http';
 import { WebSocket, WebSocketServer } from 'ws';
 import { randomUUID } from 'node:crypto';
 import {
@@ -222,3 +223,18 @@ function findParticipantBySocket(ws: WebSocket): Participant | undefined {
 
   return undefined;
 }
+
+const KEEP_ALIVE_INTERVAL_MS = 14 * 60 * 1000;
+const keepAlive = setInterval(() => {
+  const appUrl = process.env.RENDER_EXTERNAL_URL || `http://localhost:${PORT}`;
+  http.get(appUrl, (res) => {
+    res.resume(); 
+  }).on('error', (err) => {
+    console.warn('Keep-alive ping failed:', err.message);
+  });
+}, KEEP_ALIVE_INTERVAL_MS);
+
+wss.on('close', () => {
+  clearInterval(heartbeat);
+  clearInterval(keepAlive);
+});

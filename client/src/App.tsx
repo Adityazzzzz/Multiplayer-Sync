@@ -101,6 +101,10 @@ export default function App() {
     setTimeout(() => setCopied(false), 2000);
   };
 
+  const handleCreateNewRoom = () => {
+    connectionRef.current?.send({ type: 'create_room' });
+  };
+
   return (
     <main
       // Dynamically hide the default cursor only when a custom tool is active
@@ -112,25 +116,37 @@ export default function App() {
       <div className="absolute inset-x-0 top-0 h-64 bg-[radial-gradient(ellipse_at_top,rgba(214,205,255,0.54),transparent_68%)]" />
 
       <header className="absolute left-5 top-5 z-20 flex items-center gap-3">
-        <div className="grid h-10 w-10 place-items-center rounded-xl bg-[#252525] text-lg font-black text-white shadow-[0_7px_16px_rgba(28,25,23,0.18)]">A</div>
+        <div className="grid h-10 w-10 place-items-center rounded-xl bg-[#252525] text-lg font-black text-white shadow-[0_7px_16px_rgba(28,25,23,0.18)]">M</div>
         <div className="flex items-center gap-3 rounded-xl border border-black/[0.07] bg-white/90 px-3 py-2 shadow-sm backdrop-blur">
           <div>
             <p className="text-[10px] font-bold uppercase tracking-[0.16em] text-stone-400">Live canvas</p>
             <h1 className="text-sm font-bold tracking-tight">{ROOM_ID}</h1>
           </div>
           
-          {/* Copy Link Button */}
-          <button 
-            onClick={handleCopyLink}
-            className="grid h-7 w-7 place-items-center rounded-lg border border-stone-200 bg-stone-50 text-stone-600 transition-colors hover:bg-stone-100 active:bg-stone-200"
-            title="Copy invite link"
-          >
-            {copied ? (
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" className="text-green-600"><polyline points="20 6 9 17 4 12"></polyline></svg>
-            ) : (
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>
-            )}
-          </button>
+          {/* Action Buttons Group */}
+          <div className="flex items-center gap-1.5 border-l border-stone-200 pl-3 ml-1">
+            {/* Copy Link Button */}
+            <button 
+              onClick={handleCopyLink}
+              className="grid h-7 w-7 place-items-center rounded-lg border border-stone-200 bg-stone-50 text-stone-600 transition-colors hover:bg-stone-100 active:bg-stone-200"
+              title="Copy invite link"
+            >
+              {copied ? (
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" className="text-green-600"><polyline points="20 6 9 17 4 12"></polyline></svg>
+              ) : (
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>
+              )}
+            </button>
+
+            {/* Create New Room Button */}
+            <button 
+              onClick={handleCreateNewRoom}
+              className="grid h-7 w-7 place-items-center rounded-lg border border-stone-200 bg-stone-50 text-stone-600 transition-colors hover:bg-stone-100 active:bg-stone-200"
+              title="Create new workspace"
+            >
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
+            </button>
+          </div>
         </div>
       </header>
 
