@@ -15,7 +15,8 @@ export interface CursorPosition {
 export type ClientMessage =
   | { type: 'join'; roomId: RoomId; clientId: ClientId }
   | { type: 'cursor'; position: CursorPosition; timestamp: number; sequence: number }
-  | { type: 'react'; reactionId: string; position: CursorPosition; timestamp: number };
+  | { type: 'react'; reactionId: string; position: CursorPosition; timestamp: number }
+  | { type: 'ping'; timestamp: number };
 
 export interface ParticipantState {
   /** Null until the participant has sent its first cursor update. */
@@ -36,7 +37,8 @@ export type ServerMessage =
       timestamp: number;
       sequence: number;
     }
-  | { type: 'reaction'; clientId: ClientId; reactionId: string; position: CursorPosition };
+  | { type: 'reaction'; clientId: ClientId; reactionId: string; position: CursorPosition }
+  | { type: 'pong'; timestamp: number };
 
 const MAX_ID_LENGTH = 128;
 const MAX_REACTION_ID_LENGTH = 64;
@@ -104,6 +106,9 @@ export function isValidClientMessage(value: unknown): value is ClientMessage {
         isTimestamp(value.timestamp)
       );
 
+    case 'ping':
+      return isTimestamp(value.timestamp);
+
     default:
       return false;
   }
@@ -140,6 +145,9 @@ export function isValidServerMessage(value: unknown): value is ServerMessage {
         isNonEmptyString(value.reactionId, MAX_REACTION_ID_LENGTH) &&
         isCursorPosition(value.position)
       );
+
+    case 'pong':
+      return isTimestamp(value.timestamp);
 
     default:
       return false;
