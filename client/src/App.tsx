@@ -104,15 +104,15 @@ export default function App() {
   return (
     <main
       // Dynamically hide the default cursor only when a custom tool is active
-      className={`relative h-dvh w-screen cursor-none overflow-hidden bg-[#f8f7f4] text-stone-900`}
+      className={`relative h-dvh w-screen font-sans cursor-none overflow-hidden bg-[#f8f7f4] text-stone-900`}
       onPointerMove={updateLocalCursor}
       onPointerDown={handlePointerDown}
     >
-      <div className="absolute inset-0 bg-[radial-gradient(circle_at_1px_1px,rgba(56,51,43,0.14)_1px,transparent_0)] bg-[size:24px_24px]" />
+      <div className="absolute inset-0 bg-[radial-gradient(circle_at_1px_1px,rgba(56,51,43,0.14)_1px,transparent_0)] bg-[size:30px_30px]" />
       <div className="absolute inset-x-0 top-0 h-64 bg-[radial-gradient(ellipse_at_top,rgba(214,205,255,0.54),transparent_68%)]" />
 
       <header className="absolute left-5 top-5 z-20 flex items-center gap-3">
-        <div className="grid h-10 w-10 place-items-center rounded-xl bg-[#252525] text-lg font-black text-white shadow-[0_7px_16px_rgba(28,25,23,0.18)]">M</div>
+        <div className="grid h-10 w-10 place-items-center rounded-xl bg-[#252525] text-lg font-black text-white shadow-[0_7px_16px_rgba(28,25,23,0.18)]">A</div>
         <div className="flex items-center gap-3 rounded-xl border border-black/[0.07] bg-white/90 px-3 py-2 shadow-sm backdrop-blur">
           <div>
             <p className="text-[10px] font-bold uppercase tracking-[0.16em] text-stone-400">Live canvas</p>

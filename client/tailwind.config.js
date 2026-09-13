@@ -5,7 +5,12 @@ export default {
     "./src/**/*.{js,ts,jsx,tsx}",
   ],
   theme: {
-    extend: {},
+    extend: {
+      fontFamily: {
+        // Overrides the default Tailwind sans-serif stack
+        sans: ['"Plus Jakarta Sans"', 'sans-serif'], 
+      },
+    },
   },
   plugins: [],
 }
