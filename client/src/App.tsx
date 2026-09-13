@@ -1,111 +1,147 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { CanvasCursor } from './components/CanvasCursor';
+import { CanvasObjects } from './components/CanvasObjects';
+import { CanvasToolbar } from './components/CanvasToolbar';
+import { PresencePanel } from './components/PresencePanel';
+import { ReactionBurst } from './components/ReactionBurst';
+import { RoomConnection } from './connection';
+import type { ConnectionStatus, Reaction, RemoteParticipant } from './participantStore';
 
-// 1. Data-Driven Config (No more hardcoding)
-const PROFILE_DATA = {
-  name: "ADITYA SING",
-  id: "23U03031",
-  location: "BHOPAL, IN",
-  status: "Available for Open Source",
-  roles: ["Currently at IIIT Bhopal", "CODING CLUB LEAD"]
-};
+const query = new URLSearchParams(window.location.search);
+const ROOM_ID = query.get('room')?.trim() || 'design-jam';
+const CLIENT_ID_OVERRIDE = query.get('client')?.trim();
+const REACTION_EMOJI = '✦';
+const SPARK_EMOJI = '✨'; // Used for the custom spark tool
+const REACTION_LIFETIME_MS = 1_600;
+
+type ToolMode = 'pointer' | 'text' | 'spark' | 'draw';
+
+interface Point {
+  x: number;
+  y: number;
+}
 
 export default function App() {
-  const [time, setTime] = useState('');
-  const canvasRef = useRef<HTMLCanvasElement>(null);
+  const connectionRef = useRef<RoomConnection | null>(null);
+  const [status, setStatus] = useState<ConnectionStatus>('connecting');
+  const [presence, setPresence] = useState<RemoteParticipant[]>([]);
+  const [remoteCursors, setRemoteCursors] = useState<RemoteParticipant[]>([]);
+  const [reactions, setReactions] = useState<readonly Reaction[]>([]);
+  const [localCursor, setLocalCursor] = useState<Point | null>(null);
   
-  // This ref holds the real-time cursor coordinates from the WebSocket.
-  // Mutating this DOES NOT cause React to re-render.
-  const remoteCursors = useRef(new Map<string, { x: number, y: number, color: string }>());
+  // NEW: Tool State
+  const [activeTool, setActiveTool] = useState<ToolMode>('pointer');
 
-  // Slow loop: Clock (React State is fine here)
   useEffect(() => {
-    const timer = setInterval(() => setTime(new Date().toLocaleTimeString()), 1000);
-    return () => clearInterval(timer);
-  }, []);
+    const connection = new RoomConnection(
+      CLIENT_ID_OVERRIDE ? { roomId: ROOM_ID, clientId: CLIENT_ID_OVERRIDE } : { roomId: ROOM_ID },
+    );
+    connectionRef.current = connection;
 
-  // Fast loop: Cursors (Bypasses React entirely)
-  useEffect(() => {
-    const canvas = canvasRef.current;
-    if (!canvas) return;
-    const ctx = canvas.getContext('2d');
-    let animationId: number;
+    const unsubscribe = connection.store.subscribe(() => {
+      setStatus(connection.store.connectionStatus);
+      setPresence(connection.store.getParticipants());
+    });
 
-    const renderLoop = () => {
-      if (!ctx) return;
-      // Clear previous frame
-      ctx.clearRect(0, 0, canvas.width, canvas.height);
-
-      // Draw all remote cursors directly to the canvas
-      remoteCursors.current.forEach((cursor, id) => {
-        // Draw Cursor Pointer
-        ctx.fillStyle = cursor.color;
-        ctx.beginPath();
-        ctx.moveTo(cursor.x, cursor.y);
-        ctx.lineTo(cursor.x + 12, cursor.y + 16);
-        ctx.lineTo(cursor.x + 4, cursor.y + 16);
-        ctx.lineTo(cursor.x, cursor.y + 24);
-        ctx.fill();
-        
-        // Draw Name Tag
-        ctx.font = "10px monospace";
-        ctx.fillText(id.substring(0, 4), cursor.x + 16, cursor.y + 16);
-      });
-
-      animationId = requestAnimationFrame(renderLoop);
+    connection.connect();
+    return () => {
+      unsubscribe();
+      connection.disconnect();
+      connectionRef.current = null;
     };
-    
-    renderLoop();
-    return () => cancelAnimationFrame(animationId);
   }, []);
 
-  // Capture local mouse movements to send to WebSocket
-  const handleMouseMove = (_event: React.MouseEvent) => {
-    void _event;
-    // In the next step, this is where we throttle and send to WebSocket:
-    // ws.send(JSON.stringify({ type: 'cursor', x: e.clientX, y: e.clientY }))
+  useEffect(() => {
+    let frameId = 0;
+
+    const renderFrame = (now: number) => {
+      const connection = connectionRef.current;
+      if (connection) {
+        setRemoteCursors(connection.store.getParticipants(now));
+        setReactions(connection.store.getReactions().filter((reaction) => now - reaction.receivedAt < REACTION_LIFETIME_MS));
+      }
+      frameId = requestAnimationFrame(renderFrame);
+    };
+
+    frameId = requestAnimationFrame(renderFrame);
+    return () => cancelAnimationFrame(frameId);
+  }, []);
+
+  const activeRemoteCursors = useMemo(
+    () => remoteCursors.filter((participant) => participant.cursor !== null),
+    [remoteCursors],
+  );
+
+  const updateLocalCursor = (event: React.PointerEvent<HTMLDivElement>) => {
+    const position = { x: event.clientX, y: event.clientY };
+    setLocalCursor(position);
+    connectionRef.current?.sendCursor(position);
+  };
+
+  // FIXED: Consolidated Pointer Down Handler based on Active Tool
+  const handlePointerDown = (event: React.PointerEvent<HTMLDivElement>) => {
+    const position = { x: event.clientX, y: event.clientY };
+    setLocalCursor(position);
+
+    if (activeTool === 'spark') {
+      // Send a specialized spark reaction
+      connectionRef.current?.sendReaction(SPARK_EMOJI, position);
+    } 
+    else if (activeTool === 'text') {
+      // Placeholder for Sticky Note implementation
+      console.log('Drop sticky note at:', position);
+    } 
+    else {
+      // Default pointer behavior (standard reaction)
+      connectionRef.current?.sendReaction(REACTION_EMOJI, position);
+    }
   };
 
   return (
-    <div 
-      className="relative min-h-screen w-full bg-white text-black overflow-hidden font-sans flex items-center justify-center"
-      onMouseMove={handleMouseMove}
+    <main
+      // Dynamically hide the default cursor only when a custom tool is active
+      className={`relative h-dvh w-screen cursor-none overflow-hidden bg-[#f8f7f4] text-stone-900`}
+      onPointerMove={updateLocalCursor}
+      onPointerDown={handlePointerDown}
     >
-      {/* LAYER 1: Static Background */}
-      <div className="absolute inset-0 z-0 opacity-40 pointer-events-none"
-           style={{
-             backgroundImage: `linear-gradient(to right, #e5e7eb 1px, transparent 1px), linear-gradient(to bottom, #e5e7eb 1px, transparent 1px)`,
-             backgroundSize: '40px 40px'
-           }}
-      />
+      <div className="absolute inset-0 bg-[radial-gradient(circle_at_1px_1px,rgba(56,51,43,0.14)_1px,transparent_0)] bg-[size:24px_24px]" />
+      <div className="absolute inset-x-0 top-0 h-64 bg-[radial-gradient(ellipse_at_top,rgba(214,205,255,0.54),transparent_68%)]" />
 
-      <div className="absolute top-4 font-mono text-xs text-gray-400 z-10">{time}</div>
+      <header className="absolute left-5 top-5 z-20 flex items-center gap-3">
+        <div className="grid h-10 w-10 place-items-center rounded-xl bg-[#252525] text-lg font-black text-white shadow-[0_7px_16px_rgba(28,25,23,0.18)]">M</div>
+        <div className="rounded-xl border border-black/[0.07] bg-white/90 px-3 py-2 shadow-sm backdrop-blur">
+          <p className="text-[10px] font-bold uppercase tracking-[0.16em] text-stone-400">Live canvas</p>
+          <h1 className="text-sm font-bold tracking-tight">{ROOM_ID}</h1>
+        </div>
+      </header>
 
-      {/* LAYER 2: Data-Driven UI Components */}
-      <div className="relative z-10 flex flex-col items-center">
-        <div className="absolute -top-12 -left-28 bg-[#a8e6cf] px-4 py-2 -rotate-6 text-sm shadow-sm z-30">
-          {PROFILE_DATA.roles[0]}
-        </div>
-        
-        <div className="border-2 border-cyan-400 bg-white/50 px-6 py-2 z-20">
-          <h1 className="text-7xl md:text-9xl font-black uppercase tabular-nums">
-            {PROFILE_DATA.name}
-          </h1>
-        </div>
+      <PresencePanel status={status} participants={presence} />
+      <CanvasToolbar activeTool={activeTool} setActiveTool={setActiveTool} />
+      <CanvasObjects />
 
-        <div className="mt-6 flex items-center gap-2 font-mono text-xs font-bold uppercase z-20">
-          <span className="w-3 h-3 rounded-full bg-cyan-400 animate-pulse"></span>
-          {PROFILE_DATA.status}
+      <section className="pointer-events-none absolute inset-0 z-10 flex items-center justify-center px-8 text-center lg:hidden">
+        <div className="max-w-xl rounded-[2rem] border border-white/70 bg-white/55 px-8 py-7 shadow-[0_20px_70px_rgba(53,45,33,0.08)] backdrop-blur-[2px]">
+          <span className="mb-3 inline-flex rounded-full bg-[#eeeaff] px-3 py-1 text-[10px] font-extrabold uppercase tracking-[0.14em] text-[#6655d7]">Multiplayer space</span>
+          <h2 className="text-3xl font-black tracking-[-0.045em] text-stone-800 sm:text-5xl">Make your mark.</h2>
+          <p className="mx-auto mt-3 max-w-sm text-sm leading-6 text-stone-500">Move to share your cursor. Click anywhere to send a little spark to everyone in this room.</p>
         </div>
+      </section>
+
+      <div className="pointer-events-none absolute bottom-5 left-1/2 z-20 -translate-x-1/2 rounded-xl border border-black/[0.07] bg-white/90 px-4 py-2 shadow-sm backdrop-blur">
+        <p className="whitespace-nowrap text-[11px] font-semibold text-stone-500"><span className="mr-2 text-stone-900">{presence.length + 1} {presence.length === 0 ? 'person' : 'people'} in room</span>· Move to collaborate · Click to react</p>
       </div>
 
-      {/* LAYER 3: The High-Performance Real-Time Canvas Overlay */}
-      {/* This sits on top of everything and handles the 60fps WebSocket data rendering */}
-      <canvas 
-        ref={canvasRef}
-        width={window.innerWidth}
-        height={window.innerHeight}
-        className="absolute inset-0 z-50 pointer-events-none"
-      />
-    </div>
+      {activeRemoteCursors.map((participant) => (
+        <CanvasCursor
+          key={participant.clientId}
+          clientId={participant.clientId}
+          x={participant.cursor!.x}
+          y={participant.cursor!.y}
+          motion={participant.cursor!.mode}
+        />
+      ))}
+      {localCursor && <CanvasCursor clientId="local" x={localCursor.x} y={localCursor.y} isLocal />}
+      {reactions.map((reaction, index) => <ReactionBurst key={`${reaction.clientId}-${reaction.receivedAt}-${index}`} reaction={reaction} />)}
+    </main>
   );
 }
