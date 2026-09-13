@@ -1,13 +1,22 @@
 {
   "name": "multiplayer-sync",
   "version": "1.0.0",
-  "description": "",
-  "main": "index.js",
+  "description": "Raw WebSocket multiplayer cursor sync assignment",
+  "private": true,
+  "type": "module",
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "dev": "concurrently --kill-others-on-fail \"npm run dev:server\" \"npm run dev:client\"",
+    "dev:client": "npm --prefix client run dev",
+    "dev:server": "npm --prefix server run dev",
+    "build": "npm run build:server && npm run build:client",
+    "build:client": "npm --prefix client run build",
+    "build:server": "npm --prefix server run build",
+    "start": "npm --prefix server run start"
   },
   "keywords": [],
   "author": "",
   "license": "ISC",
-  "type": "commonjs"
+  "devDependencies": {
+    "concurrently": "^9.2.1"
+  }
 }
