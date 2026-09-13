@@ -1,6 +1,6 @@
 import { WebSocketServer, WebSocket } from 'ws';
 import { randomUUID } from 'crypto';
-import { ClientEvent, ServerEvent, CursorPosition } from '../../shared/protocol';
+import type { ClientMessage, CursorPosition, ParticipantState, ServerMessage } from '../../shared/protocol.js';
 
 const wss = new WebSocketServer({ port: 8080 });
 const rooms = new Map<string, Map<string, CursorPosition>>();
@@ -11,7 +11,7 @@ wss.on('connection', (ws: WebSocket) => {
 
   ws.on('message', (data: string) => {
     try {
-      const message = JSON.parse(data) as ClientEvent;
+      const message = JSON.parse(data) as ClientMessage;
 
       switch (message.type) {
         case 'join':
@@ -22,14 +22,21 @@ wss.on('connection', (ws: WebSocket) => {
           room.set(clientId, { x: 0, y: 0 });
           
           // Send current state to the new client
-          const syncMessage: ServerEvent = { 
-            type: 'sync_state', 
-            clients: Object.fromEntries(room) 
+          const participants: Record<string, ParticipantState> = Object.fromEntries(
+            room.entries().map(([id, position]) => [id, { position, lastSequence: 0 }]),
+          );
+          const syncMessage: ServerMessage = {
+            type: 'snapshot',
+            participants,
           };
           ws.send(JSON.stringify(syncMessage));
           
           // Broadcast join to others
-          broadcast(currentRoom, { type: 'client_joined', clientId }, clientId);
+          broadcast(currentRoom, {
+            type: 'presence_joined',
+            clientId,
+            state: { position: { x: 0, y: 0 }, lastSequence: 0 },
+          }, clientId);
           break;
 
         case 'cursor':
@@ -39,7 +46,8 @@ wss.on('connection', (ws: WebSocket) => {
               type: 'cursor_update', 
               clientId, 
               position: message.position, 
-              timestamp: message.timestamp 
+              timestamp: message.timestamp,
+              sequence: message.sequence,
             }, clientId);
           }
           break;
@@ -47,7 +55,7 @@ wss.on('connection', (ws: WebSocket) => {
         case 'react':
             if (currentRoom) {
                broadcast(currentRoom, {
-                   type: 'reaction_trigger',
+                   type: 'reaction',
                    clientId,
                    reactionId: message.reactionId,
                    position: message.position
@@ -63,12 +71,12 @@ wss.on('connection', (ws: WebSocket) => {
   ws.on('close', () => {
     if (currentRoom) {
       rooms.get(currentRoom)?.delete(clientId);
-      broadcast(currentRoom, { type: 'client_left', clientId }, clientId);
+      broadcast(currentRoom, { type: 'presence_left', clientId }, clientId);
       if (rooms.get(currentRoom)?.size === 0) rooms.delete(currentRoom);
     }
   });
 });
 
-function broadcast(roomId: string, event: ServerEvent, excludeId?: string) {
+function broadcast(roomId: string, event: ServerMessage, excludeId?: string) {
     const payload = JSON.stringify(event);
 }
