@@ -1,7 +1,7 @@
 import type { CursorPosition } from '../../shared/protocol';
 
-export const INTERPOLATION_DELAY_MS = 100;
-export const MAX_EXTRAPOLATION_MS = 100;
+export const INTERPOLATION_DELAY_MS = 25;
+export const MAX_EXTRAPOLATION_MS = 25;
 const MAX_SAMPLES = 3;
 
 export interface TimedCursorSample extends CursorPosition {
