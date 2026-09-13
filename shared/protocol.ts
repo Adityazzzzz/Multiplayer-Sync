@@ -13,12 +13,14 @@ export interface CursorPosition {
 
 /** Client -> server messages. */
 export type ClientMessage =
+  | { type: 'create_room' }
   | { type: 'join'; roomId: RoomId; clientId: ClientId }
   | { type: 'cursor'; position: CursorPosition; timestamp: number; sequence: number }
   | { type: 'react'; reactionId: string; position: CursorPosition; timestamp: number }
   | { type: 'ping'; timestamp: number };
 
 export interface ParticipantState {
+  displayName: string;
   /** Null until the participant has sent its first cursor update. */
   position: CursorPosition | null;
   /** The newest cursor sequence accepted by the server for this participant. */
@@ -27,6 +29,8 @@ export interface ParticipantState {
 
 /** Server -> client messages. */
 export type ServerMessage =
+  | { type: 'room_created'; roomId: RoomId }
+  | { type: 'welcome'; clientId: ClientId; participant: ParticipantState }
   | { type: 'snapshot'; participants: Record<ClientId, ParticipantState> }
   | { type: 'presence_joined'; clientId: ClientId; state: ParticipantState }
   | { type: 'presence_left'; clientId: ClientId }
@@ -76,7 +80,11 @@ export function isCursorPosition(value: unknown): value is CursorPosition {
 }
 
 export function isParticipantState(value: unknown): value is ParticipantState {
-  if (!isRecord(value) || !isSequence(value.lastSequence)) return false;
+  if (
+    !isRecord(value) ||
+    !isSequence(value.lastSequence) ||
+    !isNonEmptyString(value.displayName, MAX_ID_LENGTH)
+  ) return false;
 
   return value.position === null || isCursorPosition(value.position);
 }
@@ -86,6 +94,9 @@ export function isValidClientMessage(value: unknown): value is ClientMessage {
   if (!isRecord(value) || typeof value.type !== 'string') return false;
 
   switch (value.type) {
+    case 'create_room':
+      return true;
+
     case 'join':
       return (
         isNonEmptyString(value.roomId, MAX_ID_LENGTH) &&
@@ -119,6 +130,12 @@ export function isValidServerMessage(value: unknown): value is ServerMessage {
   if (!isRecord(value) || typeof value.type !== 'string') return false;
 
   switch (value.type) {
+    case 'room_created':
+      return isNonEmptyString(value.roomId, MAX_ID_LENGTH);
+
+    case 'welcome':
+      return isNonEmptyString(value.clientId, MAX_ID_LENGTH) && isParticipantState(value.participant);
+
     case 'snapshot':
       if (!isRecord(value.participants)) return false;
       return Object.entries(value.participants).every(

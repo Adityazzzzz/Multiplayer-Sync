@@ -28,9 +28,8 @@ export default function App() {
   const [remoteCursors, setRemoteCursors] = useState<RemoteParticipant[]>([]);
   const [reactions, setReactions] = useState<readonly Reaction[]>([]);
   const [localCursor, setLocalCursor] = useState<Point | null>(null);
-  
-  // NEW: Tool State
   const [activeTool, setActiveTool] = useState<ToolMode>('pointer');
+  const [copied, setCopied] = useState(false);
 
   useEffect(() => {
     const connection = new RoomConnection(
@@ -78,23 +77,28 @@ export default function App() {
     connectionRef.current?.sendCursor(position);
   };
 
-  // FIXED: Consolidated Pointer Down Handler based on Active Tool
   const handlePointerDown = (event: React.PointerEvent<HTMLDivElement>) => {
     const position = { x: event.clientX, y: event.clientY };
     setLocalCursor(position);
 
     if (activeTool === 'spark') {
-      // Send a specialized spark reaction
       connectionRef.current?.sendReaction(SPARK_EMOJI, position);
     } 
     else if (activeTool === 'text') {
-      // Placeholder for Sticky Note implementation
       console.log('Drop sticky note at:', position);
     } 
     else {
-      // Default pointer behavior (standard reaction)
       connectionRef.current?.sendReaction(REACTION_EMOJI, position);
     }
+  };
+
+  const handleCopyLink = () => {
+    const url = new URL(window.location.href);
+    url.searchParams.set('room', ROOM_ID);
+    navigator.clipboard.writeText(url.toString());
+    
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
   };
 
   return (
@@ -109,9 +113,24 @@ export default function App() {
 
       <header className="absolute left-5 top-5 z-20 flex items-center gap-3">
         <div className="grid h-10 w-10 place-items-center rounded-xl bg-[#252525] text-lg font-black text-white shadow-[0_7px_16px_rgba(28,25,23,0.18)]">M</div>
-        <div className="rounded-xl border border-black/[0.07] bg-white/90 px-3 py-2 shadow-sm backdrop-blur">
-          <p className="text-[10px] font-bold uppercase tracking-[0.16em] text-stone-400">Live canvas</p>
-          <h1 className="text-sm font-bold tracking-tight">{ROOM_ID}</h1>
+        <div className="flex items-center gap-3 rounded-xl border border-black/[0.07] bg-white/90 px-3 py-2 shadow-sm backdrop-blur">
+          <div>
+            <p className="text-[10px] font-bold uppercase tracking-[0.16em] text-stone-400">Live canvas</p>
+            <h1 className="text-sm font-bold tracking-tight">{ROOM_ID}</h1>
+          </div>
+          
+          {/* Copy Link Button */}
+          <button 
+            onClick={handleCopyLink}
+            className="grid h-7 w-7 place-items-center rounded-lg border border-stone-200 bg-stone-50 text-stone-600 transition-colors hover:bg-stone-100 active:bg-stone-200"
+            title="Copy invite link"
+          >
+            {copied ? (
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" className="text-green-600"><polyline points="20 6 9 17 4 12"></polyline></svg>
+            ) : (
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>
+            )}
+          </button>
         </div>
       </header>
 

@@ -1,4 +1,5 @@
 import { WebSocket, WebSocketServer } from 'ws';
+import { randomUUID } from 'node:crypto';
 import {
   parseClientMessage,
   type ClientId,
@@ -16,6 +17,7 @@ const PORT = Number.isInteger(configuredPort) && configuredPort > 0 && configure
 
 interface Participant {
   clientId: ClientId;
+  displayName: string;
   ws: WebSocket;
   position: CursorPosition | null;
   lastSequence: number;
@@ -24,6 +26,7 @@ interface Participant {
 
 interface Room {
   participants: Map<ClientId, Participant>;
+  nextUserNumber: number;
 }
 
 const wss = new WebSocketServer({ port: PORT });
@@ -47,6 +50,10 @@ wss.on('connection', (ws) => {
     }
 
     switch (message.type) {
+      case 'create_room':
+        send(ws, { type: 'room_created', roomId: createRoomId() });
+        return;
+
       case 'join': {
         if (participant) {
           // A socket may only claim one identity and room for its lifetime.
@@ -126,12 +133,13 @@ function joinRoom(
   clientId: ClientId,
   setConnectionState: (roomId: RoomId, participant: Participant) => void,
 ) {
-  const room = rooms.get(roomId) ?? { participants: new Map<ClientId, Participant>() };
+  const room = rooms.get(roomId) ?? { participants: new Map<ClientId, Participant>(), nextUserNumber: 1 };
   rooms.set(roomId, room);
 
   const existing = room.participants.get(clientId);
   const participant: Participant = {
     clientId,
+    displayName: existing?.displayName ?? `User ${room.nextUserNumber++}`,
     ws,
     position: existing?.position ?? null,
     lastSequence: existing?.lastSequence ?? -1,
@@ -143,6 +151,7 @@ function joinRoom(
   room.participants.set(clientId, participant);
   setConnectionState(roomId, participant);
 
+  send(ws, { type: 'welcome', clientId, participant: toParticipantState(participant) });
   send(ws, { type: 'snapshot', participants: snapshot });
 
   if (existing) {
@@ -181,9 +190,14 @@ function createSnapshot(room: Room, excludedClientId: ClientId): Record<ClientId
 
 function toParticipantState(participant: Participant): ParticipantState {
   return {
+    displayName: participant.displayName,
     position: participant.position,
     lastSequence: Math.max(0, participant.lastSequence),
   };
+}
+
+function createRoomId(): RoomId {
+  return randomUUID().replaceAll('-', '').slice(0, 12);
 }
 
 function broadcast(roomId: RoomId, event: ServerMessage, excludedClientId?: ClientId) {
