@@ -1,7 +1,23 @@
-import type { ClientId, ClientMessage, CursorPosition, RoomId } from '../../shared/protocol';
+import {
+  parseServerMessage,
+  type ClientId,
+  type ClientMessage,
+  type CursorPosition,
+  type RoomId,
+} from '../../shared/protocol';
+import { ParticipantStore } from './participantStore';
 
 const CLIENT_ID_STORAGE_KEY = 'multiplayer-sync.client-id';
 const CURSOR_SEQUENCE_STORAGE_KEY = 'multiplayer-sync.cursor-sequence';
+const CURSOR_SEND_INTERVAL_MS = 40;
+const INITIAL_RECONNECT_DELAY_MS = 500;
+const MAX_RECONNECT_DELAY_MS = 8_000;
+
+export interface RoomConnectionOptions {
+  roomId: RoomId;
+  url?: string;
+  clientId?: ClientId;
+}
 
 /**
  * Returns a stable identity for this browser tab. sessionStorage preserves it across
@@ -16,8 +32,157 @@ export function getOrCreateClientId(): ClientId {
   return clientId;
 }
 
-export function createJoinMessage(roomId: RoomId): ClientMessage {
-  return { type: 'join', roomId, clientId: getOrCreateClientId() };
+/** Raw WebSocket lifecycle, protocol handling, reconnection, and outbound actions. */
+export class RoomConnection {
+  readonly clientId: ClientId;
+  readonly store = new ParticipantStore();
+
+  private readonly roomId: RoomId;
+  private readonly url: string;
+  private ws: WebSocket | null = null;
+  private reconnectTimer: number | null = null;
+  private reconnectAttempts = 0;
+  private shouldReconnect = true;
+  private pendingPosition: CursorPosition | null = null;
+  private cursorTimer: number | null = null;
+  private lastCursorSentAt = 0;
+
+  constructor({ roomId, url = defaultWebSocketUrl(), clientId = getOrCreateClientId() }: RoomConnectionOptions) {
+    this.roomId = roomId;
+    this.url = url;
+    this.clientId = clientId;
+  }
+
+  connect() {
+    this.shouldReconnect = true;
+    if (this.ws?.readyState === WebSocket.OPEN || this.ws?.readyState === WebSocket.CONNECTING) return;
+
+    this.store.setConnectionStatus(this.reconnectAttempts === 0 ? 'connecting' : 'reconnecting');
+    const ws = new WebSocket(this.url);
+    this.ws = ws;
+
+    ws.addEventListener('open', () => {
+      if (this.ws !== ws) return;
+
+      this.reconnectAttempts = 0;
+      this.store.setConnectionStatus('connected');
+      this.send({ type: 'join', roomId: this.roomId, clientId: this.clientId });
+      if (this.pendingPosition) this.flushCursor();
+    });
+
+    ws.addEventListener('message', (event) => {
+      if (this.ws !== ws || typeof event.data !== 'string') return;
+
+      const message = parseServerMessage(event.data);
+      if (message) this.store.handleServerMessage(message);
+    });
+
+    ws.addEventListener('error', () => {
+      // The close handler owns recovery. Browser error events intentionally expose little detail.
+    });
+
+    ws.addEventListener('close', () => {
+      if (this.ws !== ws) return;
+      this.ws = null;
+      this.clearCursorTimer();
+
+      if (!this.shouldReconnect) {
+        this.store.setConnectionStatus('disconnected');
+        return;
+      }
+
+      this.scheduleReconnect();
+    });
+  }
+
+  disconnect() {
+    this.shouldReconnect = false;
+    this.clearReconnectTimer();
+    this.clearCursorTimer();
+
+    const ws = this.ws;
+    this.ws = null;
+    if (ws && ws.readyState < WebSocket.CLOSING) ws.close(1000, 'Client disconnected');
+    this.store.setConnectionStatus('disconnected');
+  }
+
+  sendCursor(position: CursorPosition) {
+    this.pendingPosition = position;
+    const elapsed = performance.now() - this.lastCursorSentAt;
+
+    if (elapsed >= CURSOR_SEND_INTERVAL_MS) {
+      this.flushCursor();
+    } else if (this.cursorTimer === null) {
+      this.cursorTimer = window.setTimeout(
+        () => this.flushCursor(),
+        CURSOR_SEND_INTERVAL_MS - elapsed,
+      );
+    }
+  }
+
+  sendReaction(reactionId: string, position: CursorPosition) {
+    const message: ClientMessage = {
+      type: 'react',
+      reactionId,
+      position,
+      timestamp: Date.now(),
+    };
+
+    if (this.send(message)) this.store.addLocalReaction(reactionId, position, this.clientId);
+  }
+
+  ping() {
+    this.send({ type: 'ping', timestamp: Date.now() });
+  }
+
+  private flushCursor() {
+    this.cursorTimer = null;
+    if (!this.pendingPosition) return;
+
+    const timestamp = Date.now();
+    const message: ClientMessage = {
+      type: 'cursor',
+      position: this.pendingPosition,
+      timestamp,
+      sequence: nextCursorSequence(),
+    };
+
+    if (this.send(message)) {
+      this.pendingPosition = null;
+      this.lastCursorSentAt = performance.now();
+    }
+  }
+
+  private send(message: ClientMessage): boolean {
+    if (this.ws?.readyState !== WebSocket.OPEN) return false;
+    this.ws.send(JSON.stringify(message));
+    return true;
+  }
+
+  private scheduleReconnect() {
+    this.clearReconnectTimer();
+    this.reconnectAttempts += 1;
+    const exponentialDelay = Math.min(
+      INITIAL_RECONNECT_DELAY_MS * 2 ** (this.reconnectAttempts - 1),
+      MAX_RECONNECT_DELAY_MS,
+    );
+    const jitteredDelay = exponentialDelay * (0.8 + Math.random() * 0.4);
+    this.store.setConnectionStatus('reconnecting');
+    this.reconnectTimer = window.setTimeout(() => {
+      this.reconnectTimer = null;
+      this.connect();
+    }, jitteredDelay);
+  }
+
+  private clearReconnectTimer() {
+    if (this.reconnectTimer !== null) window.clearTimeout(this.reconnectTimer);
+    this.reconnectTimer = null;
+  }
+
+  private clearCursorTimer() {
+    if (this.cursorTimer !== null) window.clearTimeout(this.cursorTimer);
+    this.cursorTimer = null;
+  }
 }
 
 function nextCursorSequence(): number {
@@ -28,46 +193,7 @@ function nextCursorSequence(): number {
   return sequence;
 }
 
-/**
- * Coalesces pointer movement to the most recent coordinate and emits no more than
- * one cursor message per delay window (use 40 ms for a 25 Hz update rate).
- */
-export function createThrottledSender(ws: WebSocket, delayMs: number) {
-  let lastSentAt = 0;
-  let pendingPosition: CursorPosition | null = null;
-  let timeoutId: number | null = null;
-
-  const sendPending = () => {
-    timeoutId = null;
-    if (!pendingPosition || ws.readyState !== WebSocket.OPEN) return;
-
-    const message: ClientMessage = {
-      type: 'cursor',
-      position: pendingPosition,
-      timestamp: Date.now(),
-      sequence: nextCursorSequence(),
-    };
-
-    ws.send(JSON.stringify(message));
-    pendingPosition = null;
-    lastSentAt = message.timestamp;
-  };
-
-  return (position: CursorPosition) => {
-    pendingPosition = position;
-    const elapsed = Date.now() - lastSentAt;
-
-    if (elapsed >= delayMs) {
-      if (timeoutId !== null) {
-        window.clearTimeout(timeoutId);
-        timeoutId = null;
-      }
-      sendPending();
-      return;
-    }
-
-    if (timeoutId === null) {
-      timeoutId = window.setTimeout(sendPending, delayMs - elapsed);
-    }
-  };
+function defaultWebSocketUrl() {
+  const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+  return `${protocol}//${window.location.hostname}:8080`;
 }
